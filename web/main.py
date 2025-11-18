@@ -1,19 +1,28 @@
 # main.py
+# main.py
 import asyncio
 import asyncpg
 import aiohttp
 from fastapi import FastAPI, HTTPException
 import time
 
+# NOTE: you currently have the DB credentials hardcoded here.
+# This must match the DB created by your docker-compose service.
 DATABASE_URL = "postgresql://ampache:wSXAlI9oHujY3XmC8AqNjpjKaXuLt7HCP7TSnjyNNOSasgZZyqCWpMNn3Xmg1gC792@db:5432/lyricsdb"
+
+# External API endpoint (exact one you gave)
+LRCLIB_API = "https://lrclib.net/api/get"
+
+# Required User-Agent (exact string you requested)
+OUTGOING_USER_AGENT = "Power Ampache Lyric Plugin v1.0 (https://power.ampache.dev)"
 
 app = FastAPI()
 db_pool: asyncpg.pool.Pool | None = None
 
 # -------------------------------
-# Database Connection
+# Database Connection (with retries)
 # -------------------------------
-async def connect_db(retries: int = 5, delay: float = 3.0):
+async def connect_db(retries: int = 10, delay: float = 2.0):
     global db_pool
     for attempt in range(1, retries + 1):
         try:
@@ -39,56 +48,89 @@ async def shutdown():
 # Fetch from DB
 # -------------------------------
 async def get_lyrics_from_db(artist_name: str, track_name: str):
+    """
+    Returns plain lyrics string from DB if present, otherwise None.
+
+    Important: Postgres lowercases unquoted identifiers. Our init_db.sql created columns
+    like plainLyrics, artistName, trackName but Postgres stores them as plainlyrics, artistname, trackname.
+    We therefore query lowercase column names here.
+    """
     global db_pool
     if not db_pool:
         raise HTTPException(status_code=500, detail="DB not initialized")
+
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT plainlyrics FROM lyrics WHERE lower(trim(artistname))=$1 AND lower(trim(trackname))=$2",
+            """
+            SELECT plainlyrics
+            FROM lyrics
+            WHERE lower(trim(artistname)) = $1 AND lower(trim(trackname)) = $2
+            LIMIT 1
+            """,
             artist_name.lower().strip(),
             track_name.lower().strip()
         )
+        # asyncpg returns keys exactly as stored (lowercase), so use 'plainlyrics'
         return row["plainlyrics"] if row else None
 
 # -------------------------------
-# Fetch from external API
+# Fetch from external API (full JSON)
 # -------------------------------
-async def fetch_lyrics_from_api(artist_name: str, track_name: str, album_name: str | None = None) -> dict:
-    url = f"https://lrclib.net/api/get?artist_name={artist_name}&track_name={track_name}"
-    if album_name:
-        url += f"&album_name={album_name}"
+async def fetch_lyrics_from_api(artist_name: str, track_name: str, album_name: str | None = None) -> dict | None:
+    """
+    Calls https://lrclib.net/api/get?artist_name=...&track_name=...&album_name=...
+    Returns the parsed JSON dict (the whole record), or None if not found / on non-200.
+    """
+    params = {
+        "artist_name": artist_name,
+        "track_name": track_name,
+        "album_name": album_name or ""
+    }
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            resp.raise_for_status()
-            data = await resp.json()  # returns the full JSON dict
+    headers = {
+        "User-Agent": OUTGOING_USER_AGENT
+    }
+
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(LRCLIB_API, params=params, timeout=15) as resp:
+            if resp.status != 200:
+                # external service returned not found or error
+                return None
+            data = await resp.json()
+            # validate basic shape
+            if not isinstance(data, dict):
+                return None
+            # `plainLyrics` is the field we store/return, ensure it exists (may be empty)
             return data
 
 # -------------------------------
-# Insert into DB with manual ID
+# Insert into DB with manual ID (milliseconds since epoch)
 # -------------------------------
 async def insert_lyrics_to_db(
     artist_name: str,
     track_name: str,
     album_name: str | None,
-    name: str,
+    name: str | None,
     duration: float | None,
     instrumental: bool | None,
-    lyrics_text: str,
+    plain_lyrics: str,
     synced_lyrics: dict | None = None
 ):
+    """
+    Inserts a full record into your existing lyrics table.
+    We generate a bigint id in Python (ms since epoch) so no schema changes are required.
+    """
     global db_pool
     if not db_pool:
         raise HTTPException(status_code=500, detail="DB not initialized")
 
-    # Generate a unique ID manually (milliseconds since epoch)
     generated_id = int(time.time() * 1000)
 
     async with db_pool.acquire() as conn:
         await conn.execute(
             """
             INSERT INTO lyrics(
-                id, artistName, trackName, albumName, name, duration, instrumental, plainLyrics, syncedLyrics
+                id, artistname, trackname, albumname, name, duration, instrumental, plainlyrics, syncedlyrics
             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
             """,
             generated_id,
@@ -98,44 +140,61 @@ async def insert_lyrics_to_db(
             name,
             duration,
             instrumental,
-            lyrics_text,
+            plain_lyrics,
             synced_lyrics
         )
 
 # -------------------------------
-# API Endpoint
+# API Endpoint: /getlyrics
 # -------------------------------
 @app.get("/getlyrics")
 async def get_lyrics(artist_name: str, track_name: str, album_name: str | None = None):
-    # Check DB first
+    """
+    Workflow:
+      1) Try DB (source-of-truth)
+      2) If missing, fetch from lrclib.net (exact endpoint you provided)
+      3) Insert the exact fetched data into DB (DB is updated synchronously)
+      4) Return the lyrics (plainLyrics field)
+    """
+    # 1) DB
     lyrics = await get_lyrics_from_db(artist_name, track_name)
     if lyrics:
-        return {"lyrics": lyrics}
+        return {"plainLyrics": lyrics}
 
-    # Fetch from external API
+    # 2) External API
     api_data = await fetch_lyrics_from_api(artist_name, track_name, album_name)
-    
     if not api_data:
         raise HTTPException(status_code=404, detail="Lyrics not found")
 
-    # Extract fields
+    # 3) Normalize fields from API (use keys exactly as API returns)
     album_name = api_data.get("albumName") if album_name is None else album_name
+    name = api_data.get("name") or track_name
     duration = api_data.get("duration")
     instrumental = api_data.get("instrumental")
-    lyrics_text = api_data.get("plainLyrics")
-    name = api_data.get("trackName") or track_name
+    plain_lyrics = api_data.get("plainLyrics") or ""
+    synced_lyrics = api_data.get("syncedLyrics")
 
-    # Insert into DB
+    # 4) Insert into DB
     await insert_lyrics_to_db(
-        artist_name,
-        track_name,
-        album_name,
-        name,
-        duration,
-        instrumental,
-        lyrics_text,
-        None
+        artist_name=api_data.get("artistName", artist_name),
+        track_name=api_data.get("trackName", track_name),
+        album_name=album_name,
+        name=name,
+        duration=duration,
+        instrumental=instrumental,
+        plain_lyrics=plain_lyrics,
+        synced_lyrics=synced_lyrics
     )
 
-    return {"lyrics": lyrics_text}
+    return {
+        "id": api_data.get("id"),
+        "name": name,
+        "trackName": api_data.get("trackName", track_name),
+        "artistName": api_data.get("artistName", artist_name),
+        "albumName": album_name,
+        "duration": duration,
+        "instrumental": instrumental,
+        "plainLyrics": plain_lyrics,
+        "syncedLyrics": synced_lyrics
+    }
 
