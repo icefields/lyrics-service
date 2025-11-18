@@ -1,10 +1,10 @@
 # main.py
-# main.py
 import asyncio
 import asyncpg
 import aiohttp
 from fastapi import FastAPI, HTTPException
 import time
+import json  # for JSON serialization
 
 # NOTE: you currently have the DB credentials hardcoded here.
 # This must match the DB created by your docker-compose service.
@@ -124,6 +124,26 @@ async def insert_lyrics_to_db(
     if not db_pool:
         raise HTTPException(status_code=500, detail="DB not initialized")
 
+    # --- FIXES START HERE ---
+    # Ensure syncedLyrics is valid JSON or None
+    if synced_lyrics in ("", [], {}, None):
+        synced_lyrics = None
+    else:
+        synced_lyrics = json.dumps(synced_lyrics)
+
+    # Ensure duration is stored as an integer (lrclib may send floats like 233.00)
+    if duration is not None:
+        try:
+            duration = int(duration)
+        except Exception:
+            duration = None
+
+    # Ensure plainLyrics is always a string
+    if plain_lyrics is None:
+        plain_lyrics = ""
+    # --- FIXES END HERE ---
+
+    # Generate a unique ID manually (milliseconds since epoch)
     generated_id = int(time.time() * 1000)
 
     async with db_pool.acquire() as conn:
@@ -172,7 +192,7 @@ async def get_lyrics(artist_name: str, track_name: str, album_name: str | None =
     duration = api_data.get("duration")
     instrumental = api_data.get("instrumental")
     plain_lyrics = api_data.get("plainLyrics") or ""
-    synced_lyrics = api_data.get("syncedLyrics")
+    synced_lyrics = api_data.get("syncedLyrics") or None
 
     # 4) Insert into DB
     await insert_lyrics_to_db(
@@ -186,6 +206,7 @@ async def get_lyrics(artist_name: str, track_name: str, album_name: str | None =
         synced_lyrics=synced_lyrics
     )
 
+    # 5) Return full API data
     return {
         "id": api_data.get("id"),
         "name": name,
