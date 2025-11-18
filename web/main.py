@@ -218,4 +218,3 @@ async def get_lyrics(artist_name: str, track_name: str, album_name: str | None =
         "plainLyrics": plain_lyrics,
         "syncedLyrics": synced_lyrics
     }
-
