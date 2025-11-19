@@ -90,10 +90,12 @@ async def fetch_lyrics_from_api(artist_name: str, track_name: str, album_name: s
     params = {
         "artist_name": artist_name,
         "track_name": track_name,
-        "album_name": album_name or None,
-        "duration" : duration or None
+        "album_name": album_name or ""
     }
 
+    if duration is not None:
+        params["duration"] = duration
+    
     headers = {
         "User-Agent": OUTGOING_USER_AGENT
     }
