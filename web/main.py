@@ -62,6 +62,8 @@ async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str 
     # Normalize album_name for comparison (UNIQUE uses COALESCE + trim + lower)
     #normalized_album = (album_name or "").lower().strip()
     #normalized_album = f"%{(album_name or '').strip()}%"
+    normalized_album = f"%{album_name or ''}%"  # fuzzy match
+    normalized_track = f"%{track_name}%"
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -74,11 +76,11 @@ async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str 
             LIMIT 1
             """,
             artist_name.lower().strip(),
-            f"%{track_name.lower().strip()}%",
-            f"%{(album_name or '').lower().strip()}%"
+            normalized_track,
+            normalized_album
         )
-        # asyncpg returns keys exactly as stored (lowercase), so row keys match column names
-        return row if row else None
+    
+    return row if row else None
 
 # -------------------------------
 # Fetch from external API (full JSON)
@@ -205,16 +207,23 @@ async def get_lyrics(artist_name: str, track_name: str, album_name: str | None =
     synced_lyrics = api_data.get("syncedLyrics") or None
 
     # 4) Insert into DB
-    await insert_lyrics_to_db(
-        artist_name=api_data.get("artistName", artist_name),
-        track_name=api_data.get("trackName", track_name),
-        album_name=album_name,
-        name=name,
-        duration=duration,
-        instrumental=instrumental,
-        plain_lyrics=plain_lyrics,
-        synced_lyrics=synced_lyrics
-    )
+    try:
+        await insert_lyrics_to_db(
+            artist_name=api_data.get("artistName", artist_name),
+            track_name=api_data.get("trackName", track_name),
+            album_name=album_name,
+            name=name,
+            duration=duration,
+            instrumental=instrumental,
+            plain_lyrics=plain_lyrics,
+            synced_lyrics=synced_lyrics
+        )
+    except asyncpg.exceptions.UniqueViolationError:
+        # Record already exists, ignore
+        pass
+    except Exception as e:
+        # log any other errors
+        print(f"Error inserting lyrics: {e}")
 
     # 5) Return full API data
     return {
