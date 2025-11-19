@@ -68,14 +68,22 @@ async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str 
             """
             SELECT *
             FROM lyrics
-            WHERE lower(trim(artistname)) = $1
-                AND lower(trim(trackname)) = $2
             LIMIT 1
-            """,
-            artist_name.lower().strip(),
-            track_name.lower().strip()
-            #,normalized_album
+            """
         )
+
+        #row = await conn.fetchrow(
+        #    """
+        #    SELECT *
+        #    FROM lyrics
+        #    WHERE lower(trim(artistname)) = $1
+        #        AND lower(trim(trackname)) = $2
+        #    LIMIT 1
+        #    """,
+        #    artist_name.lower().strip(),
+        #    track_name.lower().strip()
+            #,normalized_album
+        #)
         # asyncpg returns keys exactly as stored (lowercase), so row keys match column names
         return row if row else None
 
