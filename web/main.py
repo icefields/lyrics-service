@@ -185,8 +185,8 @@ async def get_lyrics(artist_name: str, track_name: str, album_name: str | None =
       4) Return the lyrics
     """
     # 1) DB
-    
-    record = await get_lyrics_from_db(artist_name, track_name, album_name)
+    normalized_album = (album_name or "").strip() 
+    record = await get_lyrics_from_db(artist_name, track_name, normalized_album)
     if record:
         return dict(record)
 
