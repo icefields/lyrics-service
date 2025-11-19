@@ -31,8 +31,6 @@ fastapi-lyrics-service/
 └─ main.py # API server (FastAPI) - DB+API logic
 ```
 
-
-```
 ## Key files explained
 
 ### db_init/init_db.sql
@@ -92,7 +90,7 @@ docker compose down -v
 
 # build & run
 docker compose up --build
-
+```
 `Watch docker compose logs -f web to see the app connect to Postgres.`
 
 Testing the endpoint
