@@ -174,7 +174,7 @@ async def insert_lyrics_to_db(
 # API Endpoint: /getlyrics
 # -------------------------------
 @app.get("/getlyrics")
-async def get_lyrics(artist_name: str, track_name: str, album_name: str | None = None, duration: str | None = None):
+async def get_lyrics(artist_name: str, track_name: str, album_name: str | None = None, duration: int | None = None):
     """
     Workflow:
       1) Try DB (source-of-truth)
