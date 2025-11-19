@@ -46,7 +46,8 @@ async def shutdown():
 # -------------------------------
 # Fetch from DB
 # -------------------------------
-async def get_lyrics_from_db(artist_name: str, track_name: str):
+
+async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str | None = None):
     """
     Returns plain lyrics string from DB if present, otherwise None.
 
@@ -58,24 +59,30 @@ async def get_lyrics_from_db(artist_name: str, track_name: str):
     if not db_pool:
         raise HTTPException(status_code=500, detail="DB not initialized")
 
+    # Normalize album_name for comparison (UNIQUE uses COALESCE + trim + lower)
+    normalized_album = (album_name or "").lower().strip()
+
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT plainlyrics
+            SELECT *
             FROM lyrics
-            WHERE lower(trim(artistname)) = $1 AND lower(trim(trackname)) = $2
+            WHERE lower(trim(artistname)) = $1
+              AND lower(trim(trackname)) = $2
+              AND lower(coalesce(trim(albumname), '')) = $3
             LIMIT 1
             """,
             artist_name.lower().strip(),
-            track_name.lower().strip()
+            track_name.lower().strip(),
+            normalized_album
         )
-        # asyncpg returns keys exactly as stored (lowercase), so use 'plainlyrics'
-        return row["plainlyrics"] if row else None
+        # asyncpg returns keys exactly as stored (lowercase), so row keys match column names
+        return row if row else None
 
 # -------------------------------
 # Fetch from external API (full JSON)
 # -------------------------------
-async def fetch_lyrics_from_api(artist_name: str, track_name: str, album_name: str | None = None) -> dict | None:
+async def fetch_lyrics_from_api(artist_name: str, track_name: str, album_name: str | None = None, duration: int | None = None) -> dict | None:
     """
     Calls https://lrclib.net/api/get?artist_name=...&track_name=...&album_name=...
     Returns the parsed JSON dict (the whole record), or None if not found / on non-200.
@@ -83,7 +90,8 @@ async def fetch_lyrics_from_api(artist_name: str, track_name: str, album_name: s
     params = {
         "artist_name": artist_name,
         "track_name": track_name,
-        "album_name": album_name or ""
+        "album_name": album_name or None,
+        "duration" : duration or None
     }
 
     headers = {
@@ -166,7 +174,7 @@ async def insert_lyrics_to_db(
 # API Endpoint: /getlyrics
 # -------------------------------
 @app.get("/getlyrics")
-async def get_lyrics(artist_name: str, track_name: str, album_name: str | None = None):
+async def get_lyrics(artist_name: str, track_name: str, album_name: str | None = None, duration: str | None = None):
     """
     Workflow:
       1) Try DB (source-of-truth)
@@ -175,12 +183,13 @@ async def get_lyrics(artist_name: str, track_name: str, album_name: str | None =
       4) Return the lyrics
     """
     # 1) DB
-    lyrics = await get_lyrics_from_db(artist_name, track_name)
-    if lyrics:
-        return {"plainLyrics": lyrics}
+    
+    record = await get_lyrics_from_db(artist_name, track_name, album_name)
+    if record:
+        return dict(record)
 
     # 2) External API
-    api_data = await fetch_lyrics_from_api(artist_name, track_name, album_name)
+    api_data = await fetch_lyrics_from_api(artist_name, track_name, album_name, duration)
     if not api_data:
         raise HTTPException(status_code=404, detail="Lyrics not found")
 
