@@ -61,9 +61,7 @@ async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str 
 
     # Normalize album_name for comparison (UNIQUE uses COALESCE + trim + lower)
     #normalized_album = (album_name or "").lower().strip()
-    normalized_album = f"%{(album_name or '').strip()}%"
-
-
+    #normalized_album = f"%{(album_name or '').strip()}%"
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -72,12 +70,11 @@ async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str 
             FROM lyrics
             WHERE lower(trim(artistname)) = $1
                 AND lower(trim(trackname)) = $2
-                AND albumname ILIKE $3
             LIMIT 1
             """,
             artist_name.lower().strip(),
-            track_name.lower().strip(),
-            normalized_album
+            track_name.lower().strip()
+            #,normalized_album
         )
         # asyncpg returns keys exactly as stored (lowercase), so row keys match column names
         return row if row else None
