@@ -4,16 +4,15 @@ import asyncpg
 import aiohttp
 from fastapi import FastAPI, HTTPException
 import time
-import json  # for JSON serialization
+import json
 
-# NOTE: you currently have the DB credentials hardcoded here.
-# This must match the DB created by your docker-compose service.
+# NOTE: currently the DB credentials are hardcoded here.
+# This must match the DB created by the docker-compose service.
 DATABASE_URL = "postgresql://ampache:wSXAlI9oHujY3XmC8AqNjpjKaXuLt7HCP7TSnjyNNOSasgZZyqCWpMNn3Xmg1gC792@db:5432/lyricsdb"
 
-# External API endpoint (exact one you gave)
+# External API endpoint
 LRCLIB_API = "https://lrclib.net/api/get"
 
-# Required User-Agent (exact string you requested)
 OUTGOING_USER_AGENT = "Power Ampache Lyric Plugin v1.0 (https://power.ampache.dev)"
 
 app = FastAPI()
@@ -51,7 +50,7 @@ async def get_lyrics_from_db(artist_name: str, track_name: str):
     """
     Returns plain lyrics string from DB if present, otherwise None.
 
-    Important: Postgres lowercases unquoted identifiers. Our init_db.sql created columns
+    Important: Postgres lowercases unquoted identifiers. init_db.sql created columns
     like plainLyrics, artistName, trackName but Postgres stores them as plainlyrics, artistname, trackname.
     We therefore query lowercase column names here.
     """
@@ -118,7 +117,7 @@ async def insert_lyrics_to_db(
 ):
     """
     Inserts a full record into your existing lyrics table.
-    We generate a bigint id in Python (ms since epoch) so no schema changes are required.
+    Generate a bigint id in Python (ms since epoch) so no schema changes are required.
     """
     global db_pool
     if not db_pool:
@@ -141,7 +140,6 @@ async def insert_lyrics_to_db(
     # Ensure plainLyrics is always a string
     if plain_lyrics is None:
         plain_lyrics = ""
-    # --- FIXES END HERE ---
 
     # Generate a unique ID manually (milliseconds since epoch)
     generated_id = int(time.time() * 1000)
@@ -172,9 +170,9 @@ async def get_lyrics(artist_name: str, track_name: str, album_name: str | None =
     """
     Workflow:
       1) Try DB (source-of-truth)
-      2) If missing, fetch from lrclib.net (exact endpoint you provided)
+      2) If missing, fetch from lrclib.net
       3) Insert the exact fetched data into DB (DB is updated synchronously)
-      4) Return the lyrics (plainLyrics field)
+      4) Return the lyrics
     """
     # 1) DB
     lyrics = await get_lyrics_from_db(artist_name, track_name)
@@ -218,3 +216,4 @@ async def get_lyrics(artist_name: str, track_name: str, album_name: str | None =
         "plainLyrics": plain_lyrics,
         "syncedLyrics": synced_lyrics
     }
+
