@@ -60,7 +60,10 @@ async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str 
         raise HTTPException(status_code=500, detail="DB not initialized")
 
     # Normalize album_name for comparison (UNIQUE uses COALESCE + trim + lower)
-    normalized_album = (album_name or "").lower().strip()
+    #normalized_album = (album_name or "").lower().strip()
+    normalized_album = f"%{(album_name or '').strip()}%"
+
+
 
     async with db_pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -68,8 +71,8 @@ async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str 
             SELECT *
             FROM lyrics
             WHERE lower(trim(artistname)) = $1
-              AND lower(trim(trackname)) = $2
-              AND lower(coalesce(trim(albumname), '')) = $3
+                AND lower(trim(trackname)) = $2
+                AND albumname ILIKE $3
             LIMIT 1
             """,
             artist_name.lower().strip(),
