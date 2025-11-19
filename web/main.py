@@ -69,15 +69,14 @@ async def get_lyrics_from_db(artist_name: str, track_name: str, album_name: str 
             SELECT *
             FROM lyrics
             WHERE lower(trim(artistname)) = $1
-                AND trackname ILIKE $2
-                AND albumname ILIKE $3
+              AND trackname ILIKE $2
+              AND albumname ILIKE $3
             LIMIT 1
             """,
             artist_name.lower().strip(),
-            f"%{track_name}%",
-            f"%{album_name or ''}%"
+            f"%{track_name.lower().strip()}%",
+            f"%{(album_name or '').lower().strip()}%"
         )
-
         # asyncpg returns keys exactly as stored (lowercase), so row keys match column names
         return row if row else None
 
