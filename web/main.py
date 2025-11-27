@@ -8,7 +8,7 @@ import json
 
 # NOTE: currently the DB credentials are hardcoded here.
 # This must match the DB created by the docker-compose service.
-DATABASE_URL = "postgresql://ampache:wSXAlI9oHujY3XmC8AqNjpjKaXuLt7HCP7TSnjyNNOSasgZZyqCWpMNn3Xmg1gC792@db:5432/lyricsdb"
+DATABASE_URL = "postgresql://ampache:<password>@db:5432/lyricsdb"
 
 # External API endpoint
 LRCLIB_API = "https://lrclib.net/api/get"

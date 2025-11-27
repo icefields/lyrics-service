@@ -13,7 +13,7 @@ services:
     image: postgres:15
     container_name: lyrics-db
     environment:
-      POSTGRES_PASSWORD: wSXAlI9oHujY3XmC8AqNjpjKaXuLt7HCP7TSnjyNNOSasgZZyqCWpMNn3Xmg1gC792
+      POSTGRES_PASSWORD: <password>
       POSTGRES_USER: ampache
       POSTGRES_DB: lyricsdb
     ports:
